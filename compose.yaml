@@ -118,6 +118,7 @@ services:
       - QUEUE_BULL_REDIS_PORT=6379
       - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
       - EXECUTIONS_MODE=queue
+      - QUEUE_HEALTH_CHECK_ACTIVE=true
     volumes:
       - /mnt/data/n8n:/home/node/.n8n:z
     depends_on:
@@ -127,6 +128,12 @@ services:
         condition: service_healthy
       n8n:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5678/healthz/readiness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
   # AI Web Interfaces
   open-webui:
     image: ghcr.io/open-webui/open-webui:latest
