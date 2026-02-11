@@ -1,0 +1,24 @@
+# GPU/Vulkan overlay for machines with a capable discrete AMD GPU.
+# Usage: docker compose -f compose.yaml -f compose.vulkan.yml up -d
+#
+# Prerequisites on the host:
+#   - vulkan-tools installed (or libvulkan available at the paths below)
+#   - /dev/dri/card1 and /dev/dri/renderD128 present
+#   - User in the 'render' group (gid 105 on most distros)
+
+services:
+  ollama:
+    security_opt:
+      - label=disable
+    volumes:
+      - /usr/lib64/libvulkan.so.1:/usr/lib/x86_64-linux-gnu/libvulkan.so.1:ro
+      - /usr/lib64/dri:/usr/lib/x86_64-linux-gnu/dri:ro
+    devices:
+      - /dev/dri/card1:/dev/dri/card1:rwm
+      - /dev/dri/renderD128:/dev/dri/renderD128:rwm
+    environment:
+      - OLLAMA_VULKAN=1
+      - OLLAMA_CPU_FALLBACK=1
+      - OLLAMA_VK_DEVICE=0
+    group_add:
+      - 105 # render

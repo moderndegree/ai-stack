@@ -41,33 +41,14 @@ services:
     image: docker.io/ollama/ollama:latest
     container_name: ollama
     restart: always
-    security_opt:
-      - label=disable
-    entrypoint: ["/bin/sh", "-c"]
-    command: >
-      "
-        if ! command -v vulkaninfo > /dev/null 2>&1; then
-          apt-get update &&
-          apt-get install -y vulkan-tools;
-        fi &&
-        exec /usr/bin/ollama serve
-      "
     volumes:
       - /mnt/data/ollama:/root/.ollama:Z
       - /mnt/data/models:/models:Z
-      - /usr/lib64/libvulkan.so.1:/usr/lib/x86_64-linux-gnu/libvulkan.so.1:ro
-      - /usr/lib64/dri:/usr/lib/x86_64-linux-gnu/dri:ro
-    devices:
-      - /dev/dri/card1:/dev/dri/card1:rwm
-      - /dev/dri/renderD128:/dev/dri/renderD128:rwm
     environment:
-      - OLLAMA_VULKAN=1
-      - OLLAMA_CPU_FALLBACK=1
-      - OLLAMA_VK_DEVICE=0
-      - OLLAMA_CONTEXT_LENGTH=2048
+      - OLLAMA_MODELS=/models
+      - OLLAMA_CONTEXT_LENGTH=8192
       - OLLAMA_NUM_THREADS=8
-    group_add:
-      - 105 # render
+      - OLLAMA_MAX_LOADED_MODELS=2
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 15s
@@ -81,8 +62,9 @@ services:
     restart: always
     ports:
       - "5678:5678"
-    user: "0:0"
+    user: "1000:1000"
     environment:
+      - N8N_COMMUNITY_PACKAGES_ENABLED=false
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
       - N8N_PROTOCOL=https
       - N8N_HOST=localhost
@@ -110,8 +92,9 @@ services:
     container_name: n8n-worker
     restart: always
     command: worker
-    user: "0:0"
+    user: "1000:1000"
     environment:
+      - N8N_COMMUNITY_PACKAGES_ENABLED=false
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
@@ -151,22 +134,6 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
-  anythingllm:
-    image: docker.io/mintplexlabs/anythingllm:latest
-    container_name: anythingllm
-    restart: always
-    ports:
-      - "3001:3001"
-    user: "0:0"
-    environment:
-      - OLLAMA_BASE_URL=http://ollama:11434
-      - STORAGE_DIR=/app/server/storage
-    volumes:
-      - /mnt/data/anythingllm:/app/server/storage:Z
-      - /mnt/data/documents:/app/documents:Z
-    depends_on:
-      ollama:
-        condition: service_healthy
   # Search Services
   searxng:
     image: docker.io/searxng/searxng:latest
