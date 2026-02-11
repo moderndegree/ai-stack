@@ -33,9 +33,10 @@ if (process.env.MCP_FILESYSTEM_ROOT) {
 }
 
 // Fetch — lets Claude retrieve URLs during a task (web research, API calls)
+// Uses the official Python-based server via uvx
 servers.fetch = {
-  command: 'npx',
-  args: ['-y', '@modelcontextprotocol/server-fetch'],
+  command: 'uvx',
+  args: ['mcp-server-fetch'],
 };
 
 const config = { mcpServers: servers };
