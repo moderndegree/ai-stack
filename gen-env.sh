@@ -33,6 +33,7 @@ ANTHROPIC_API_KEY=sk-ant-REPLACE_ME
 
 # ── Core infrastructure ───────────────────────────────────────────────────────
 POSTGRES_PASSWORD=$(rand_b64 24)
+MCP_POSTGRES_PASSWORD=$(rand_b64 24)
 REDIS_PASSWORD=$(rand_b64 24)
 N8N_ENCRYPTION_KEY=$(rand_b64 24)
 SEARXNG_SECRET_KEY=$(rand_hex 32)
@@ -43,6 +44,9 @@ LANGFUSE_NEXTAUTH_SECRET=$(rand_b64 32)
 LANGFUSE_SALT=$(rand_b64 24)
 LANGFUSE_ENCRYPTION_KEY=$(rand_hex 32)
 
+# External URL for LangFuse — must match your reverse proxy (required for login)
+LANGFUSE_URL=https://REPLACE_ME_langfuse_domain
+
 # ── Langfuse — API keys ───────────────────────────────────────────────────────
 # Create a project at http://localhost:3004, then paste the keys here.
 LANGFUSE_PUBLIC_KEY=pk-lf-REPLACE_ME
@@ -52,6 +56,8 @@ LANGFUSE_SECRET_KEY=sk-lf-REPLACE_ME
 BROWSERLESS_TOKEN=$(rand_b64 24)
 
 # ── Gitea ─────────────────────────────────────────────────────────────────────
+# External URL for Gitea — must match your reverse proxy (sets clone URLs)
+GITEA_ROOT_URL=https://REPLACE_ME_gitea_domain
 # Create a token at http://localhost:3003 → Settings → Applications
 GITEA_TOKEN=REPLACE_ME
 
@@ -59,6 +65,9 @@ GITEA_TOKEN=REPLACE_ME
 # Run 'bash garage/init.sh' after first start, then paste the output here.
 GARAGE_ACCESS_KEY_ID=REPLACE_ME
 GARAGE_SECRET_ACCESS_KEY=REPLACE_ME
+
+# ── claude-worker ─────────────────────────────────────────────────────────────
+CLAUDE_WORKER_TOKEN=$(rand_b64 24)
 
 # ── Optional claude-worker overrides ──────────────────────────────────────────
 # DEFAULT_MAX_ITERATIONS=20
@@ -72,8 +81,10 @@ echo "Created $DEST (chmod 600)"
 echo ""
 echo "Still needs manual input:"
 echo "  ANTHROPIC_API_KEY        — https://console.anthropic.com/settings/keys"
+echo "  LANGFUSE_URL             — external URL for your LangFuse instance"
 echo "  LANGFUSE_PUBLIC_KEY      — create project at http://localhost:3004"
 echo "  LANGFUSE_SECRET_KEY      — same"
+echo "  GITEA_ROOT_URL           — external URL for your Gitea instance"
 echo "  GITEA_TOKEN              — http://localhost:3003 → Settings → Applications"
 echo "  GARAGE_ACCESS_KEY_ID     — run bash garage/init.sh after first start"
 echo "  GARAGE_SECRET_ACCESS_KEY — same"

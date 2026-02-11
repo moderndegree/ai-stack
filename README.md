@@ -12,14 +12,13 @@ A self-hosted AI infrastructure platform built on Podman Compose. Combines local
                         └──────────┬───────────────────────────────┘
                                    │ (reverse proxy / Cloudflare)
           ┌────────────────────────┼──────────────────────┐
-          │                        │                       │
-    ┌─────▼──────┐         ┌───────▼──────┐        ┌──────▼──────┐
-    │    n8n     │         │  Open WebUI  │         │ AnythingLLM │
-    │  :5678     │         │   :8080      │         │   :3001     │
-    └─────┬──────┘         └───────┬──────┘         └──────┬──────┘
-          │ orchestrates           │                        │
-          │                        └────────────┬───────────┘
-          │                                     │ local inference
+          │                        │
+    ┌─────▼──────┐         ┌───────▼──────┐
+    │    n8n     │         │  Open WebUI  │
+    │  :5678     │         │   :8080      │
+    └─────┬──────┘         └───────┬──────┘
+          │ orchestrates           │
+          │                        │ local inference
     ┌─────▼──────────────────┐          ┌───────▼──────┐
     │     claude-worker      │          │    Ollama    │
     │  Ralph Wiggum Loop API │          │   (Vulkan)   │
@@ -55,7 +54,6 @@ Supporting services:
 | n8n | 5678 | Workflow automation and orchestration |
 | n8n-worker | — | Queue worker for n8n (no exposed port) |
 | open-webui | 8080 | Chat UI for Ollama models |
-| anythingllm | 3001 | Document-centric AI interface |
 | ollama | — | Local LLM inference with Vulkan/GPU acceleration |
 | claude-worker | 3002 | Ralph Wiggum loop API (agentic task executor) |
 | searxng | 8082 | Private metasearch engine |
@@ -212,11 +210,14 @@ podman compose restart claude-worker
 
 Base URL: `http://localhost:3002`
 
+All requests require `Authorization: Bearer <CLAUDE_WORKER_TOKEN>`.
+
 ### Submit a task
 
 ```bash
 curl -X POST http://localhost:3002/tasks \
   -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <CLAUDE_WORKER_TOKEN>' \
   -d '{
     "prompt": "## Goal\nWrite a Python script that...\n\n## Success criteria\n...\n\nOutput RALPH_COMPLETE when done.",
     "max_iterations": 15,
@@ -268,10 +269,10 @@ curl -X DELETE http://localhost:3002/tasks/my-task-001
 
 ### Basic pattern: submit → poll → branch
 
-1. **HTTP Request** node → `POST http://claude-worker:3000/tasks`
+1. **HTTP Request** node → `POST http://claude-worker:3000/tasks` with header `Authorization: Bearer {{ $env.CLAUDE_WORKER_TOKEN }}`
 2. **Set** node → save `task_id` from response
 3. **Wait** node → pause 30s
-4. **HTTP Request** node → `GET http://claude-worker:3000/tasks/{{ $json.task_id }}`
+4. **HTTP Request** node → `GET http://claude-worker:3000/tasks/{{ $json.task_id }}` with the same auth header
 5. **IF** node → branch on `status`
    - `complete` → continue with `output`
    - `running` → loop back to step 3
@@ -313,8 +314,7 @@ All persistent data lives under `/mnt/data/`:
 ├── models/            — LLM model files (shared with Ollama)
 ├── n8n/               — n8n workflows and credentials
 ├── open-webui/        — Open WebUI data
-├── anythingllm/       — AnythingLLM storage
-├── documents/         — shared document store (open-webui + anythingllm)
+├── documents/         — shared document store (open-webui)
 ├── searxng/           — SearXNG configuration
 ├── gitea/             — Gitea repositories and data
 ├── garage/            — Garage S3 metadata and object data
@@ -323,8 +323,9 @@ All persistent data lives under `/mnt/data/`:
 └── claude-workspaces/ — Ralph loop task workspaces
     └── <task-id>/
         ├── PROMPT.md     — invariant goal (written once by API)
-        ├── iter_000.log  — Claude output, iteration 0
+        ├── task_meta.json — task state (persisted across restarts)
         ├── iter_001.log  — Claude output, iteration 1
+        ├── iter_002.log  — Claude output, iteration 2
         ├── ralph.log     — rolling summary of all iterations
         └── ...           — any files Claude creates
 ```

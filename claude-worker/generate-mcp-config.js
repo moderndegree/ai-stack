@@ -1,6 +1,6 @@
 'use strict';
 
-// Generates ~/.claude/claude.json from environment variables at container startup.
+// Generates ~/.claude/settings.json from environment variables at container startup.
 // Claude Code reads this file to discover available MCP tool servers.
 // Each server is a subprocess spawned per-session — no persistent connection.
 

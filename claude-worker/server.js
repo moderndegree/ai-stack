@@ -21,13 +21,80 @@ if (process.env.LANGFUSE_PUBLIC_KEY && process.env.LANGFUSE_SECRET_KEY) {
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+const CLAUDE_WORKER_TOKEN = process.env.CLAUDE_WORKER_TOKEN;
+if (!CLAUDE_WORKER_TOKEN) {
+  console.warn('WARNING: CLAUDE_WORKER_TOKEN is not set — API is unauthenticated');
+} else {
+  app.use((req, res, next) => {
+    const auth = req.headers['authorization'] || '';
+    if (!auth.startsWith('Bearer ') || auth.slice(7) !== CLAUDE_WORKER_TOKEN) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    next();
+  });
+}
+
 const WORKSPACES_DIR = process.env.WORKSPACES_DIR || '/workspaces';
 const DEFAULT_MAX_ITERATIONS = parseInt(process.env.DEFAULT_MAX_ITERATIONS || '20', 10);
 const DEFAULT_COMPLETION_PROMISE = process.env.DEFAULT_COMPLETION_PROMISE || 'RALPH_COMPLETE';
+const TASK_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-// In-memory task registry. Each value:
-// { status, workspace, iterations, maxIterations, completionPromise, output, error, startedAt, finishedAt }
+// Task registry — in-memory, backed by task_meta.json in each workspace.
 const tasks = new Map();
+
+// Persist task metadata to disk (called on every state mutation).
+// Does NOT save `output` (already in iter_NNN.log) or `_cancel` (runtime flag).
+function saveTaskMeta(taskId, task) {
+  const { _cancel, output, ...meta } = task;
+  try {
+    fs.writeFileSync(
+      path.join(task.workspace, 'task_meta.json'),
+      JSON.stringify(meta, null, 2),
+      'utf8',
+    );
+  } catch (err) {
+    console.error(`Failed to persist task_meta.json for ${taskId}:`, err.message);
+  }
+}
+
+// Load existing task workspaces from disk on startup.
+// Tasks that were 'running' when the server last stopped are unrecoverable — mark them as error.
+function loadTasksFromDisk() {
+  if (!fs.existsSync(WORKSPACES_DIR)) return;
+  for (const entry of fs.readdirSync(WORKSPACES_DIR, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const metaPath = path.join(WORKSPACES_DIR, entry.name, 'task_meta.json');
+    if (!fs.existsSync(metaPath)) continue;
+    try {
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+      if (meta.status === 'running') {
+        meta.status = 'error';
+        meta.error = 'Server restarted while task was running';
+        meta.finishedAt = new Date().toISOString();
+        fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf8');
+      }
+      tasks.set(entry.name, meta);
+    } catch (err) {
+      console.error(`Could not load task metadata for ${entry.name}:`, err.message);
+    }
+  }
+  console.log(`Recovered ${tasks.size} task(s) from disk`);
+}
+
+// Periodically evict terminal tasks older than TASK_TTL_MS from memory.
+// Workspace files remain on disk — only the registry entry is removed.
+setInterval(() => {
+  const cutoff = Date.now() - TASK_TTL_MS;
+  for (const [id, task] of tasks.entries()) {
+    if (task.status === 'running') continue;
+    const finished = task.finishedAt ? new Date(task.finishedAt).getTime() : 0;
+    if (finished < cutoff) tasks.delete(id);
+  }
+}, 60 * 60 * 1000);
+
+loadTasksFromDisk();
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -72,6 +139,7 @@ app.post('/tasks', (req, res) => {
   };
 
   tasks.set(taskId, task);
+  saveTaskMeta(taskId, task);
 
   // Fire-and-forget: the loop runs async, caller polls /tasks/:id
   runRalphLoop(taskId).catch((err) => {
@@ -80,6 +148,7 @@ app.post('/tasks', (req, res) => {
       t.status = 'error';
       t.error = err.message;
       t.finishedAt = new Date().toISOString();
+      saveTaskMeta(taskId, t);
     }
   });
 
@@ -148,12 +217,14 @@ async function runRalphLoop(taskId) {
     if (task._cancel) {
       task.status = 'cancelled';
       task.finishedAt = new Date().toISOString();
+      saveTaskMeta(taskId, task);
       trace?.update({ output: { status: 'cancelled', iterations: i } });
       await langfuse?.flushAsync();
       return;
     }
 
     task.iterations = i + 1;
+    saveTaskMeta(taskId, task);
 
     const span = trace?.span({ name: `iteration-${i + 1}`, input: { iteration: i + 1 } });
 
@@ -163,8 +234,9 @@ async function runRalphLoop(taskId) {
 
     span?.end({ output: { text: output.slice(0, 2000) } }); // truncate for LangFuse storage
 
-    // Write iteration output so Claude can introspect its own history next round
-    const logFile = path.join(task.workspace, `iter_${String(i).padStart(3, '0')}.log`);
+    // Write iteration output so Claude can introspect its own history next round.
+    // Logs are 1-indexed to match the iteration number shown in task status.
+    const logFile = path.join(task.workspace, `iter_${String(i + 1).padStart(3, '0')}.log`);
     fs.writeFileSync(logFile, output, 'utf8');
 
     // Append to the rolling summary log
@@ -178,6 +250,7 @@ async function runRalphLoop(taskId) {
       task.status = 'complete';
       task.output = output;
       task.finishedAt = new Date().toISOString();
+      saveTaskMeta(taskId, task);
       trace?.update({ output: { status: 'complete', iterations: i + 1 } });
       await langfuse?.flushAsync();
       return;
@@ -186,6 +259,7 @@ async function runRalphLoop(taskId) {
 
   task.status = 'max_iterations_reached';
   task.finishedAt = new Date().toISOString();
+  saveTaskMeta(taskId, task);
   trace?.update({ output: { status: 'max_iterations_reached', iterations: task.maxIterations } });
   await langfuse?.flushAsync();
 }
