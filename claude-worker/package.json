@@ -1,0 +1,10 @@
+{
+  "name": "claude-worker",
+  "version": "1.0.0",
+  "description": "Ralph Wiggum loop orchestration API for Claude Code",
+  "main": "server.js",
+  "dependencies": {
+    "express": "^4.19.2",
+    "langfuse": "^3.0.0"
+  }
+}

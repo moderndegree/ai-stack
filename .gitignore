@@ -1,0 +1,7 @@
+# Secrets — never commit these
+.env
+garage/garage.toml
+
+# Node
+node_modules/
+claude-worker/node_modules/

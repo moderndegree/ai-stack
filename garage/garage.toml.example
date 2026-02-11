@@ -1,0 +1,19 @@
+metadata_dir = "/var/lib/garage/meta"
+data_dir     = "/var/lib/garage/data"
+db_engine    = "lmdb"
+
+replication_factor = 1
+
+# Generate with: node -e "require('crypto').randomBytes(32).then(b=>console.log(b.toString('hex')))"
+# IMPORTANT: never change rpc_secret after the cluster has been initialized
+rpc_secret = "replace-with-64-char-hex-string"
+
+rpc_bind_addr   = "[::]:3901"
+rpc_public_addr = "garage:3901"
+
+[s3_api]
+s3_region    = "us-east-1"
+api_bind_addr = "[::]:3900"
+
+[admin]
+api_bind_addr = "[::]:3903"

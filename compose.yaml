@@ -1,0 +1,290 @@
+services:
+  # Infrastructure Layer - Databases & Cache
+  postgres:
+    image: docker.io/postgres:16
+    container_name: postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=n8n
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=n8n
+    volumes:
+      - /mnt/data/postgres:/var/lib/postgresql/data:Z
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  redis:
+    image: docker.io/redis:7-alpine
+    container_name: redis
+    restart: always
+    command: redis-server --requirepass "${REDIS_PASSWORD}"
+    volumes:
+      - /mnt/data/redis:/data:Z
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  qdrant:
+    image: docker.io/qdrant/qdrant:latest
+    container_name: qdrant
+    restart: always
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - /mnt/data/qdrant:/qdrant/storage:Z
+  # AI/ML Services
+  ollama:
+    image: docker.io/ollama/ollama:latest
+    container_name: ollama
+    restart: always
+    security_opt:
+      - label=disable
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "
+        if ! command -v vulkaninfo > /dev/null 2>&1; then
+          apt-get update &&
+          apt-get install -y vulkan-tools;
+        fi &&
+        exec /usr/bin/ollama serve
+      "
+    volumes:
+      - /mnt/data/ollama:/root/.ollama:Z
+      - /mnt/data/models:/models:Z
+      - /usr/lib64/libvulkan.so.1:/usr/lib/x86_64-linux-gnu/libvulkan.so.1:ro
+      - /usr/lib64/dri:/usr/lib/x86_64-linux-gnu/dri:ro
+    devices:
+      - /dev/dri/card1:/dev/dri/card1:rwm
+      - /dev/dri/renderD128:/dev/dri/renderD128:rwm
+    environment:
+      - OLLAMA_VULKAN=1
+      - OLLAMA_CPU_FALLBACK=1
+      - OLLAMA_VK_DEVICE=0
+      - OLLAMA_CONTEXT_LENGTH=2048
+      - OLLAMA_NUM_THREADS=8
+    group_add:
+      - 105 # render
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+  # Workflow Automation
+  n8n:
+    image: docker.io/n8nio/n8n:latest
+    container_name: n8n
+    restart: always
+    ports:
+      - "5678:5678"
+    user: "0:0"
+    environment:
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_PROTOCOL=https
+      - N8N_HOST=localhost
+      - WEBHOOK_URL=https://n8n.moderndegree.com/
+      - N8N_SECURE_COOKIE=true
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=n8n
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - EXECUTIONS_MODE=queue
+    volumes:
+      - /mnt/data/n8n:/home/node/.n8n:z
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  n8n-worker:
+    image: docker.io/n8nio/n8n:latest
+    container_name: n8n-worker
+    restart: always
+    command: worker
+    user: "0:0"
+    environment:
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=n8n
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - EXECUTIONS_MODE=queue
+    volumes:
+      - /mnt/data/n8n:/home/node/.n8n:z
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      n8n:
+        condition: service_started
+  # AI Web Interfaces
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - ENABLE_SIGNUP=true
+      - WEBUI_AUTH=true
+    volumes:
+      - /mnt/data/open-webui:/app/backend/data:Z
+      - /mnt/data/documents:/app/documents:Z
+    depends_on:
+      ollama:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+  anythingllm:
+    image: docker.io/mintplexlabs/anythingllm:latest
+    container_name: anythingllm
+    restart: always
+    ports:
+      - "3001:3001"
+    user: "0:0"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - STORAGE_DIR=/app/server/storage
+    volumes:
+      - /mnt/data/anythingllm:/app/server/storage:Z
+      - /mnt/data/documents:/app/documents:Z
+    depends_on:
+      ollama:
+        condition: service_healthy
+  # Search Services
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: searxng
+    restart: always
+    ports:
+      - "8082:8080"
+    environment:
+      - BASE_URL=https://search.moderndegree.com/
+      - ULIMIT_NOFILE=65535:65535
+      - SEARXNG_SECRET_KEY=${SEARXNG_SECRET_KEY}
+    volumes:
+      - /mnt/data/searxng:/etc/searxng:Z
+  # Object Storage
+  garage:
+    image: docker.io/dxflrs/garage:v1.0.1
+    container_name: garage
+    restart: always
+    ports:
+      - "3900:3900"   # S3 API — used by n8n, claude-worker, external tools
+    volumes:
+      - ./garage/garage.toml:/etc/garage.toml:ro,Z
+      - /mnt/data/garage/meta:/var/lib/garage/meta:Z
+      - /mnt/data/garage/data:/var/lib/garage/data:Z
+    command: /garage server
+  # Git Hosting
+  gitea:
+    image: docker.io/gitea/gitea:latest
+    container_name: gitea
+    restart: always
+    ports:
+      - "3003:3000"
+      - "2222:22"
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - GITEA__database__DB_TYPE=sqlite3
+      - GITEA__server__HTTP_PORT=3000
+      - GITEA__server__ROOT_URL=http://localhost:3003
+      - GITEA__webhook__ALLOWED_HOST_LIST=*
+      - GITEA__actions__ENABLED=true
+    volumes:
+      - /mnt/data/gitea:/data:Z
+  # Observability
+  langfuse-db:
+    image: docker.io/postgres:16
+    container_name: langfuse-db
+    restart: always
+    environment:
+      - POSTGRES_USER=langfuse
+      - POSTGRES_PASSWORD=${LANGFUSE_DB_PASSWORD}
+      - POSTGRES_DB=langfuse
+    volumes:
+      - /mnt/data/langfuse-db:/var/lib/postgresql/data:Z
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  langfuse:
+    image: docker.io/langfuse/langfuse:latest
+    container_name: langfuse
+    restart: always
+    ports:
+      - "3004:3000"
+    environment:
+      - DATABASE_URL=postgresql://langfuse:${LANGFUSE_DB_PASSWORD}@langfuse-db:5432/langfuse
+      - NEXTAUTH_URL=http://localhost:3004
+      - NEXTAUTH_SECRET=${LANGFUSE_NEXTAUTH_SECRET}
+      - SALT=${LANGFUSE_SALT}
+      - ENCRYPTION_KEY=${LANGFUSE_ENCRYPTION_KEY}
+      - TELEMETRY_ENABLED=false
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+  # Browser Automation
+  browserless:
+    image: ghcr.io/browserless/chromium:latest
+    container_name: browserless
+    restart: always
+    ports:
+      - "3005:3000"
+    environment:
+      - TOKEN=${BROWSERLESS_TOKEN}
+      - TIMEOUT=60000
+      - CONCURRENT=3
+      - QUEUE_LENGTH=10
+  # Agentic Workflows
+  claude-worker:
+    build: ./claude-worker
+    container_name: claude-worker
+    restart: always
+    ports:
+      - "3002:3000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - WORKSPACES_DIR=/workspaces
+      - DEFAULT_MAX_ITERATIONS=20
+      - DEFAULT_COMPLETION_PROMISE=RALPH_COMPLETE
+      - LANGFUSE_BASE_URL=http://langfuse:3000
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - GITEA_URL=http://gitea:3000
+      - GITEA_TOKEN=${GITEA_TOKEN}
+      - BROWSER_WS_ENDPOINT=ws://browserless:3000?token=${BROWSERLESS_TOKEN}
+      # S3 — standard env vars picked up by AWS SDK, boto3, and most S3 clients
+      - AWS_ENDPOINT_URL=http://garage:3900
+      - AWS_ACCESS_KEY_ID=${GARAGE_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${GARAGE_SECRET_ACCESS_KEY}
+      - AWS_REGION=us-east-1
+      - S3_ARTIFACTS_BUCKET=artifacts
+      # MCP — connection strings for Claude Code tool servers
+      - MCP_POSTGRES_URL=postgresql://n8n:${POSTGRES_PASSWORD}@postgres:5432/n8n
+      - MCP_FILESYSTEM_ROOT=/workspaces
+    volumes:
+      - /mnt/data/claude-workspaces:/workspaces:Z
+    depends_on:
+      - langfuse
+      - gitea
+      - browserless
+      - garage
