@@ -127,6 +127,7 @@ Then output: RALPH_COMPLETE
 - Podman with the compose plugin (`podman compose version`)
 - GPU with Vulkan support (optional — Ollama falls back to CPU)
 - `/mnt/data/` with sufficient disk space for model files and data volumes
+- On Fedora (SELinux enforcing): `setup-dirs.sh` handles context labeling automatically — no extra steps needed
 
 ---
 

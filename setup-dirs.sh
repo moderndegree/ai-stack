@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
 # Creates host directories required by compose.yaml before first run.
 # Run as root (or with sudo) since /mnt/data is typically root-owned.
+#
+# On Fedora (SELinux enforcing), this script also pre-applies the
+# container_file_t context to every directory. Without this, rootless
+# Podman fails to relabel directories it doesn't own when mounting
+# volumes with the :Z option.
 
 set -euo pipefail
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
+# Detect whether SELinux is available and enforcing
+SELINUX_ACTIVE=false
+if command -v selinuxenabled &>/dev/null && selinuxenabled 2>/dev/null; then
+  SELINUX_ACTIVE=true
+fi
 
 make_dir() {
   local dir="$1" mode="${2:-755}" owner="${3:-}"
@@ -16,6 +27,11 @@ make_dir() {
   fi
   chmod "$mode" "$dir"
   [[ -n "$owner" ]] && chown "$owner" "$dir"
+  # Pre-label with container_file_t so rootless Podman's :Z mount option
+  # doesn't fail on directories owned by root or other non-current UIDs.
+  if [[ "$SELINUX_ACTIVE" == true ]]; then
+    chcon -t container_file_t "$dir" 2>/dev/null || true
+  fi
 }
 
 # ── infrastructure ────────────────────────────────────────────────────────────
@@ -80,4 +96,8 @@ make_dir /mnt/data/langfuse-db    700 "999:999"
 make_dir /mnt/data/claude-workspaces 755 "root:root"
 
 echo ""
-echo "All directories ready."
+if [[ "$SELINUX_ACTIVE" == true ]]; then
+  echo "All directories ready (SELinux container_file_t context applied)."
+else
+  echo "All directories ready."
+fi
