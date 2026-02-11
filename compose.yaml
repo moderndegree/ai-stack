@@ -218,7 +218,7 @@ services:
       timeout: 5s
       retries: 5
   langfuse:
-    image: docker.io/langfuse/langfuse:latest
+    image: docker.io/langfuse/langfuse:2
     container_name: langfuse
     restart: always
     ports:
