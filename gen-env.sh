@@ -69,6 +69,9 @@ GARAGE_SECRET_ACCESS_KEY=REPLACE_ME
 # ── claude-worker ─────────────────────────────────────────────────────────────
 CLAUDE_WORKER_TOKEN=$(rand_b64 24)
 
+# ── OpenCode ──────────────────────────────────────────────────────────────────
+OPENCODE_SERVER_PASSWORD=$(rand_b64 24)
+
 # ── Optional claude-worker overrides ──────────────────────────────────────────
 # DEFAULT_MAX_ITERATIONS=20
 # DEFAULT_COMPLETION_PROMISE=RALPH_COMPLETE

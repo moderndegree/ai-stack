@@ -280,3 +280,17 @@ services:
       - gitea
       - browserless
       - garage
+  # AI Coding Agent
+  opencode:
+    image: ghcr.io/anomalyco/opencode
+    container_name: opencode
+    restart: always
+    ports:
+      - "4096:4096"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}
+    volumes:
+      - /mnt/data/opencode:/data:Z
+      - /mnt/data/claude-workspaces:/workspaces:Z
+    command: serve
