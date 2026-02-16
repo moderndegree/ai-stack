@@ -43,6 +43,8 @@ services:
     image: docker.io/ollama/ollama:latest
     container_name: ollama
     restart: always
+    ports:
+      - "11434:11434"
     volumes:
       - /mnt/data/ollama:/root/.ollama:Z
       - /mnt/data/models:/models:Z
